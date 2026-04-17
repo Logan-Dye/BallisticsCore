@@ -1,0 +1,34 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Ballistics Core",
+	"Description": "Deterministic projectile ballistics with multiplayer lag compensation.",
+	"Category": "Gameplay",
+	"CreatedBy": "Logan Dye",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BallisticsCoreRuntime",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "BallisticsCoreEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "BallisticsCoreTests",
+			"Type": "Developer",
+			"LoadingPhase": "Default"
+		}
+	]
+}

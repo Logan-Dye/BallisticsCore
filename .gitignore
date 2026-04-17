@@ -1,0 +1,24 @@
+# UE generated
+Binaries/
+Intermediate/
+DerivedDataCache/
+Saved/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.user
+*.VC.db
+*.VC.opendb
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
