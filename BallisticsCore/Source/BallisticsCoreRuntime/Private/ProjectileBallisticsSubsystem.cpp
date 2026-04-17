@@ -3,54 +3,8 @@
 
 #include "ProjectileBallisticsSubsystem.h"
 #include "ProjectileBallisticsComponent.h"
-#include "BallisticsCoreSettings.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
-
-// ─────────────────────────────────────────────
-//  Subsystem Lifecycle
-// ─────────────────────────────────────────────
-
-void UProjectileBallisticsSubsystem::Initialize(FSubsystemCollectionBase& Collection)
-{
-	Super::Initialize(Collection);
-}
-
-void UProjectileBallisticsSubsystem::Deinitialize()
-{
-	// Destroy any pooled actors
-	for (const TWeakObjectPtr<AActor>& Weak : ProjectilePool)
-	{
-		if (AActor* Actor = Weak.Get())
-		{
-			Actor->Destroy();
-		}
-	}
-	ProjectilePool.Empty();
-	ActiveProjectiles.Empty();
-
-	Super::Deinitialize();
-}
-
-bool UProjectileBallisticsSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
-{
-	return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
-}
-
-void UProjectileBallisticsSubsystem::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-	if (Settings && Settings->bEnableTickBatching)
-	{
-		BatchTickProjectiles(DeltaTime);
-	}
-}
-
-// ─────────────────────────────────────────────
-//  Trajectory Prediction
-// ─────────────────────────────────────────────
 
 FTrajectoryPredictionResult UProjectileBallisticsSubsystem::PredictTrajectory(
 	const FProjectileInitialConditions& Conditions,
@@ -64,9 +18,8 @@ FTrajectoryPredictionResult UProjectileBallisticsSubsystem::PredictTrajectory(
 		return Result;
 	}
 
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-	const float Gravity = Settings ? Settings->GravityZ : -980.f;
-	const float Air = Settings ? Settings->AirDensity : 0.001225f;
+	constexpr float Gravity = -980.f;
+	constexpr float Air = 0.001225f;
 	const float CrossSection = PI * FMath::Square(Conditions.Diameter * 0.5f);
 
 	FVector Pos = Conditions.Origin;
@@ -165,141 +118,6 @@ TArray<UProjectileBallisticsComponent*> UProjectileBallisticsSubsystem::GetProje
 	}
 
 	return Results;
-}
-
-// ─────────────────────────────────────────────
-//  Object Pooling
-// ─────────────────────────────────────────────
-
-AActor* UProjectileBallisticsSubsystem::AcquireProjectile(TSubclassOf<AActor> ProjectileClass, const FVector& Location, const FRotator& Rotation)
-{
-	UWorld* World = GetWorld();
-	if (!World || !ProjectileClass)
-	{
-		return nullptr;
-	}
-
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-	const bool bPoolingEnabled = Settings && Settings->bEnableProjectilePooling;
-
-	// Try to pull from pool
-	if (bPoolingEnabled)
-	{
-		for (int32 i = ProjectilePool.Num() - 1; i >= 0; --i)
-		{
-			AActor* Pooled = ProjectilePool[i].Get();
-			if (!Pooled)
-			{
-				ProjectilePool.RemoveAt(i);
-				continue;
-			}
-
-			if (Pooled->GetClass() == ProjectileClass)
-			{
-				ProjectilePool.RemoveAt(i);
-				ActivateActor(Pooled, Location, Rotation);
-				return Pooled;
-			}
-		}
-	}
-
-	// Pool empty or wrong class — spawn fresh
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	return World->SpawnActor<AActor>(ProjectileClass, Location, Rotation, SpawnParams);
-}
-
-void UProjectileBallisticsSubsystem::ReleaseProjectile(AActor* Projectile)
-{
-	if (!Projectile)
-	{
-		return;
-	}
-
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-	const bool bPoolingEnabled = Settings && Settings->bEnableProjectilePooling;
-
-	if (bPoolingEnabled)
-	{
-		DeactivateActor(Projectile);
-		ProjectilePool.Add(Projectile);
-	}
-	else
-	{
-		Projectile->Destroy();
-	}
-}
-
-void UProjectileBallisticsSubsystem::PreWarmPool(TSubclassOf<AActor> ProjectileClass, int32 Count)
-{
-	UWorld* World = GetWorld();
-	if (!World || !ProjectileClass || Count <= 0)
-	{
-		return;
-	}
-
-	for (int32 i = 0; i < Count; ++i)
-	{
-		FActorSpawnParameters SpawnParams;
-		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-		AActor* Actor = World->SpawnActor<AActor>(ProjectileClass, FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
-		if (Actor)
-		{
-			DeactivateActor(Actor);
-			ProjectilePool.Add(Actor);
-		}
-	}
-}
-
-void UProjectileBallisticsSubsystem::DeactivateActor(AActor* Actor)
-{
-	Actor->SetActorHiddenInGame(true);
-	Actor->SetActorEnableCollision(false);
-	Actor->SetActorTickEnabled(false);
-
-	// Disable the ballistics component tick too
-	if (UProjectileBallisticsComponent* Comp = Actor->FindComponentByClass<UProjectileBallisticsComponent>())
-	{
-		Comp->SetComponentTickEnabled(false);
-	}
-}
-
-void UProjectileBallisticsSubsystem::ActivateActor(AActor* Actor, const FVector& Location, const FRotator& Rotation)
-{
-	Actor->SetActorLocation(Location);
-	Actor->SetActorRotation(Rotation);
-	Actor->SetActorHiddenInGame(false);
-	Actor->SetActorEnableCollision(true);
-	Actor->SetActorTickEnabled(true);
-
-	if (UProjectileBallisticsComponent* Comp = Actor->FindComponentByClass<UProjectileBallisticsComponent>())
-	{
-		Comp->SetComponentTickEnabled(true);
-	}
-}
-
-// ─────────────────────────────────────────────
-//  Tick Batching
-// ─────────────────────────────────────────────
-
-void UProjectileBallisticsSubsystem::BatchTickProjectiles(float DeltaTime)
-{
-	PruneStaleProjectiles();
-
-	for (const TWeakObjectPtr<UProjectileBallisticsComponent>& Weak : ActiveProjectiles)
-	{
-		if (UProjectileBallisticsComponent* Comp = Weak.Get())
-		{
-			if (Comp->IsInFlight())
-			{
-				// Tick through the component's public interface
-				// When batch ticking, individual component ticks should be disabled
-				Comp->TickComponent(DeltaTime, LEVELTICK_All, nullptr);
-			}
-		}
-	}
 }
 
 // ─────────────────────────────────────────────

@@ -61,4 +61,6 @@ public:
 
 private:
 	static constexpr float StepSize = 0.005f;
+	static constexpr float GravityZ = -980.f;
+	static constexpr float AirDensity = 0.001225f;
 };

@@ -11,7 +11,7 @@
 /**
  * Core projectile physics component. Attach to a projectile actor.
  * Drives deterministic trajectory simulation with collision sweeps,
- * ricochet, penetration, embedding, and sliding.
+ * ricochet, penetration, and embedding.
  *
  * Determinism: given identical FProjectileInitialConditions, this component
  * will produce bit-identical trajectories across calls. All randomness is
@@ -47,30 +47,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Ballistics")
 	EProjectileState GetCurrentState() const { return CurrentState; }
 
-	UFUNCTION(BlueprintPure, Category = "Ballistics")
-	float GetElapsedTime() const { return ElapsedTime; }
-
-	UFUNCTION(BlueprintPure, Category = "Ballistics")
-	int32 GetProjectileID() const { return ProjectileID; }
-
-	UFUNCTION(BlueprintPure, Category = "Ballistics")
-	bool IsLocallyPredicted() const { return bIsLocallyPredicted; }
-
-	// ─── Authority / Prediction ──────────────────
-
-	/** Mark this projectile as a local prediction (not authoritative) */
-	void SetIsLocallyPredicted(bool bPredicted) { bIsLocallyPredicted = bPredicted; }
-
-	/** Assign a tracking ID for reconciliation between client and server */
-	void SetProjectileID(int32 ID) { ProjectileID = ID; }
-
-	/**
-	 * Force-correct position and velocity from server reconciliation.
-	 * Snaps the projectile to the server's authoritative state.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Ballistics")
-	void ForceCorrection(const FVector& NewPosition, const FVector& NewVelocity, float NewElapsedTime);
-
 	// ─── Configuration ───────────────────────────
 
 	/** Trace channel used for collision sweeps */
@@ -85,21 +61,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Physics", meta = (ClampMin = "0"))
 	float MaxPenetrationDepth = 30.f;
 
-	/** Speed below which the projectile transitions to Sliding or Embedded */
+	/** Speed below which the projectile transitions to Embedded or Destroyed */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Physics", meta = (ClampMin = "0"))
 	float MinFlightSpeed = 500.f;
-
-	/** Speed below which a sliding projectile comes to rest and embeds/destroys */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Physics", meta = (ClampMin = "0"))
-	float MinSlidingSpeed = 50.f;
-
-	/** Friction coefficient for sliding projectiles (0 = ice, 1 = sandpaper) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Physics", meta = (ClampMin = "0", ClampMax = "2"))
-	float SlidingFriction = 0.5f;
-
-	/** If true, projectiles can slide along surfaces after low-energy impacts. If false, they embed immediately. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Physics")
-	bool bEnableSliding = true;
 
 	/** Default material response when no mapping is found for a surface type */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Materials")
@@ -115,15 +79,6 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Ballistics|Events")
 	FOnProjectileDestroyed OnProjectileDestroyed;
-
-	// ─── Material Response Override ──────────────
-
-	/**
-	 * Optional: assign a data asset to drive per-surface material responses.
-	 * If not set, DefaultMaterialResponse is used for all surfaces.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics|Materials")
-	TObjectPtr<class UBallisticMaterialDataAsset> MaterialDataAsset;
 
 protected:
 	virtual void BeginPlay() override;
@@ -155,16 +110,6 @@ private:
 	UPROPERTY()
 	FRandomStream DeterministicRandom;
 
-	UPROPERTY()
-	int32 ProjectileID;
-
-	UPROPERTY()
-	bool bIsLocallyPredicted;
-
-	/** Surface normal of the surface we're sliding on */
-	UPROPERTY()
-	FVector SlidingSurfaceNormal;
-
 	// ─── Internal ────────────────────────────────
 
 	/** Step the trajectory forward by DeltaTime using piecewise constant-acceleration segments */
@@ -191,16 +136,12 @@ private:
 	/** Handle embedding: stop the projectile, attach to hit actor */
 	void HandleEmbed(const FHitResult& Hit);
 
-	/** Handle sliding: project velocity onto surface, apply friction */
-	void HandleSlide(const FHitResult& Hit, const FBallisticMaterialResponse& Material);
-
-	/** Tick the sliding state: friction deceleration, surface following */
-	void StepSliding(float DeltaTime);
-
 	/** Transition to a new state, fire delegate */
 	void SetState(EProjectileState NewState);
 
 	// ─── Constants ───────────────────────────────
 
 	static constexpr float TrajectoryStepSize = 0.005f; // 5ms sub-steps for drag accuracy
+	static constexpr float GravityZ = -980.f;
+	static constexpr float AirDensity = 0.001225f;
 };

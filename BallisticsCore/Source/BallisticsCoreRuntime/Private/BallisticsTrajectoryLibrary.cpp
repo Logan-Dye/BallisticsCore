@@ -2,18 +2,16 @@
 // Copyright Logan Dye. All Rights Reserved.
 
 #include "BallisticsTrajectoryLibrary.h"
-#include "BallisticsCoreSettings.h"
 
 FVector UBallisticsTrajectoryLibrary::ComputeAcceleration(const FProjectileInitialConditions& Conditions, const FVector& Velocity)
 {
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-	FVector Accel(0.f, 0.f, Settings->GravityZ);
+	FVector Accel(0.f, 0.f, GravityZ);
 
 	const float Speed = Velocity.Size();
 	if (Speed > KINDA_SMALL_NUMBER)
 	{
 		const float CrossSection = PI * FMath::Square(Conditions.Diameter * 0.5f);
-		const float DragAccelMag = (0.5f * Settings->AirDensity * Conditions.DragCoefficient * CrossSection * Speed * Speed) / Conditions.Mass;
+		const float DragAccelMag = (0.5f * AirDensity * Conditions.DragCoefficient * CrossSection * Speed * Speed) / Conditions.Mass;
 		Accel -= Velocity.GetSafeNormal() * DragAccelMag;
 	}
 
