@@ -3,8 +3,6 @@
 
 #include "ProjectileBallisticsComponent.h"
 #include "ProjectileBallisticsSubsystem.h"
-#include "BallisticsCoreSettings.h"
-#include "BallisticsDamageInterface.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/World.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
@@ -20,8 +18,6 @@ UProjectileBallisticsComponent::UProjectileBallisticsComponent()
 	CurrentPosition = FVector::ZeroVector;
 	CurrentVelocity = FVector::ZeroVector;
 	RicochetCount = 0;
-	ProjectileID = -1;
-	bIsLocallyPredicted = false;
 }
 
 void UProjectileBallisticsComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -125,29 +121,6 @@ FProjectileSnapshot UProjectileBallisticsComponent::EvaluateAtTime(float Time) c
 	return Snapshot;
 }
 
-void UProjectileBallisticsComponent::ForceCorrection(const FVector& NewPosition, const FVector& NewVelocity, float NewElapsedTime)
-{
-	CurrentPosition = NewPosition;
-	CurrentVelocity = NewVelocity;
-	ElapsedTime = NewElapsedTime;
-
-	if (AActor* Owner = GetOwner())
-	{
-		Owner->SetActorLocation(CurrentPosition);
-		if (!CurrentVelocity.IsNearlyZero())
-		{
-			Owner->SetActorRotation(CurrentVelocity.Rotation());
-		}
-	}
-
-	// If corrected velocity is zero or below threshold, the server says we stopped
-	if (CurrentVelocity.Size() < MinFlightSpeed && IsInFlight())
-	{
-		SetState(EProjectileState::Destroyed);
-		OnProjectileDestroyed.Broadcast(GetCurrentSnapshot());
-	}
-}
-
 // ─────────────────────────────────────────────
 //  Tick
 // ─────────────────────────────────────────────
@@ -155,12 +128,6 @@ void UProjectileBallisticsComponent::ForceCorrection(const FVector& NewPosition,
 void UProjectileBallisticsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	if (CurrentState == EProjectileState::Sliding)
-	{
-		StepSliding(DeltaTime);
-		return;
-	}
 
 	if (!IsInFlight())
 	{
@@ -223,9 +190,8 @@ void UProjectileBallisticsComponent::StepTrajectory(float DeltaTime)
 
 FVector UProjectileBallisticsComponent::ComputeAcceleration(const FVector& Velocity) const
 {
-	// Gravity (from global settings)
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-	FVector Accel(0.f, 0.f, Settings->GravityZ);
+	// Gravity (hardcoded constant)
+	FVector Accel(0.f, 0.f, GravityZ);
 
 	// Drag: F = 0.5 * rho * Cd * A * v^2, direction opposing velocity
 	const float Speed = Velocity.Size();
@@ -236,7 +202,7 @@ FVector UProjectileBallisticsComponent::ComputeAcceleration(const FVector& Veloc
 		// Actually: AirDensity is g/cm^3, CrossSection is cm^2, Speed is cm/s
 		// DragForce (g*cm/s^2) = 0.5 * rho * Cd * A * v^2
 		// DragAccel (cm/s^2) = DragForce / Mass(g)
-		const float DragAccelMag = (0.5f * Settings->AirDensity * InitialConditions.DragCoefficient * CrossSection * Speed * Speed) / InitialConditions.Mass;
+		const float DragAccelMag = (0.5f * AirDensity * InitialConditions.DragCoefficient * CrossSection * Speed * Speed) / InitialConditions.Mass;
 
 		Accel -= Velocity.GetSafeNormal() * DragAccelMag;
 	}
@@ -282,26 +248,6 @@ bool UProjectileBallisticsComponent::ProcessSweep(const FVector& Start, const FV
 	// Fire impact delegate
 	OnImpact.Broadcast(Hit, ImpactSnapshot, Response);
 
-	// Dispatch damage to the hit actor if it implements the interface
-	if (AActor* HitActor = Hit.GetActor())
-	{
-		if (HitActor->GetClass()->ImplementsInterface(UBallisticsDamageInterface::StaticClass()))
-		{
-			FBallisticDamageContext DamageContext;
-			DamageContext.HitResult = Hit;
-			DamageContext.ImpactSnapshot = ImpactSnapshot;
-			DamageContext.InitialConditions = InitialConditions;
-			DamageContext.ImpactResponse = Response;
-			DamageContext.KineticEnergy = 0.5f * InitialConditions.Mass * CurrentVelocity.SizeSquared();
-			DamageContext.DistanceTraveled = FVector::Dist(InitialConditions.Origin, Hit.ImpactPoint);
-			DamageContext.PenetrationDepth = 0.f; // Updated by HandlePenetration if applicable
-			DamageContext.Instigator = GetOwner() ? GetOwner()->GetInstigator() : nullptr;
-			DamageContext.ProjectileActor = GetOwner();
-
-			IBallisticsDamageInterface::Execute_OnBallisticDamage(HitActor, DamageContext);
-		}
-	}
-
 	// Handle the response
 	switch (Response)
 	{
@@ -314,15 +260,7 @@ bool UProjectileBallisticsComponent::ProcessSweep(const FVector& Start, const FV
 		break;
 
 	case EImpactResponse::Embed:
-		// Check if we should slide instead of embed
-		if (bEnableSliding && CurrentVelocity.Size() > MinSlidingSpeed)
-		{
-			HandleSlide(Hit, Material);
-		}
-		else
-		{
-			HandleEmbed(Hit);
-		}
+		HandleEmbed(Hit);
 		break;
 
 	case EImpactResponse::Shatter:
@@ -363,16 +301,7 @@ EImpactResponse UProjectileBallisticsComponent::DecideImpactResponse(const FHitR
 
 FBallisticMaterialResponse UProjectileBallisticsComponent::GetMaterialResponse(const FHitResult& Hit) const
 {
-	// If we have a material data asset, look up the surface type
-	if (MaterialDataAsset)
-	{
-		if (const UPhysicalMaterial* PhysMat = Hit.PhysMaterial.Get())
-		{
-			return MaterialDataAsset->GetResponseForSurface(PhysMat->SurfaceType);
-		}
-		return MaterialDataAsset->DefaultResponse;
-	}
-
+	// Always use the default material response
 	return DefaultMaterialResponse;
 }
 
@@ -459,91 +388,6 @@ void UProjectileBallisticsComponent::HandleEmbed(const FHitResult& Hit)
 		if (Hit.GetComponent())
 		{
 			Owner->AttachToComponent(Hit.GetComponent(), FAttachmentTransformRules::KeepWorldTransform, Hit.BoneName);
-		}
-	}
-}
-
-void UProjectileBallisticsComponent::HandleSlide(const FHitResult& Hit, const FBallisticMaterialResponse& Material)
-{
-	// Project velocity onto the surface plane
-	SlidingSurfaceNormal = Hit.ImpactNormal;
-	const FVector VelAlongNormal = FVector::DotProduct(CurrentVelocity, SlidingSurfaceNormal) * SlidingSurfaceNormal;
-	CurrentVelocity -= VelAlongNormal;
-
-	// Apply coefficient of restitution to the tangential velocity
-	CurrentVelocity *= Material.CoefficientOfRestitution;
-
-	// Nudge off surface slightly
-	CurrentPosition += SlidingSurfaceNormal * 0.5f;
-
-	SetState(EProjectileState::Sliding);
-}
-
-void UProjectileBallisticsComponent::StepSliding(float DeltaTime)
-{
-	const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get();
-
-	// Apply friction deceleration
-	const float Speed = CurrentVelocity.Size();
-	if (Speed < MinSlidingSpeed)
-	{
-		// Come to rest
-		CurrentVelocity = FVector::ZeroVector;
-		SetState(EProjectileState::Embedded);
-		OnProjectileDestroyed.Broadcast(GetCurrentSnapshot());
-		return;
-	}
-
-	// Friction force: F = mu * m * g (opposing velocity direction)
-	const float FrictionDecel = SlidingFriction * FMath::Abs(Settings->GravityZ);
-	const float SpeedReduction = FrictionDecel * DeltaTime;
-
-	if (SpeedReduction >= Speed)
-	{
-		CurrentVelocity = FVector::ZeroVector;
-		SetState(EProjectileState::Embedded);
-		OnProjectileDestroyed.Broadcast(GetCurrentSnapshot());
-		return;
-	}
-
-	CurrentVelocity -= CurrentVelocity.GetSafeNormal() * SpeedReduction;
-
-	// Move along the surface
-	const FVector OldPosition = CurrentPosition;
-	CurrentPosition += CurrentVelocity * DeltaTime;
-	ElapsedTime += DeltaTime;
-
-	// Keep on the surface — trace downward to snap to geometry
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		FHitResult GroundHit;
-		FCollisionQueryParams Params;
-		Params.AddIgnoredActor(GetOwner());
-
-		const FVector TraceStart = CurrentPosition + SlidingSurfaceNormal * 5.f;
-		const FVector TraceEnd = CurrentPosition - SlidingSurfaceNormal * 10.f;
-
-		if (World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, TraceChannel, Params))
-		{
-			CurrentPosition = GroundHit.ImpactPoint + SlidingSurfaceNormal * 0.5f;
-			SlidingSurfaceNormal = GroundHit.ImpactNormal; // Update if surface curves
-		}
-		else
-		{
-			// Lost the surface — fall back to in-flight
-			SetState(EProjectileState::InFlight);
-			return;
-		}
-	}
-
-	// Update actor
-	if (AActor* Owner = GetOwner())
-	{
-		Owner->SetActorLocation(CurrentPosition);
-		if (!CurrentVelocity.IsNearlyZero())
-		{
-			Owner->SetActorRotation(CurrentVelocity.Rotation());
 		}
 	}
 }

@@ -17,7 +17,6 @@ enum class EProjectileState : uint8
 	Ricocheted,
 	Penetrating,
 	Embedded,
-	Sliding,
 	Destroyed
 };
 
@@ -147,41 +146,6 @@ struct BALLISTICSCORERUNTIME_API FTrajectoryPredictionResult
 };
 
 // ─────────────────────────────────────────────
-//  Data Assets
-// ─────────────────────────────────────────────
-
-/**
- * Data asset that maps UE physical surface types to ballistic material responses.
- * Create one of these in your content folder, fill in the map, and assign it
- * to your ProjectileBallisticsComponent.
- */
-UCLASS(BlueprintType)
-class BALLISTICSCORERUNTIME_API UBallisticMaterialDataAsset : public UDataAsset
-{
-	GENERATED_BODY()
-
-public:
-	/** Map from physical surface type to ballistic response. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics")
-	TMap<TEnumAsByte<EPhysicalSurface>, FBallisticMaterialResponse> SurfaceResponseMap;
-
-	/** Fallback response if the surface type isn't in the map. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ballistics")
-	FBallisticMaterialResponse DefaultResponse;
-
-	/** Look up the response for a surface type. Returns DefaultResponse if not found. */
-	UFUNCTION(BlueprintPure, Category = "Ballistics")
-	FBallisticMaterialResponse GetResponseForSurface(TEnumAsByte<EPhysicalSurface> Surface) const
-	{
-		if (const FBallisticMaterialResponse* Found = SurfaceResponseMap.Find(Surface))
-		{
-			return *Found;
-		}
-		return DefaultResponse;
-	}
-};
-
-// ─────────────────────────────────────────────
 //  Delegates
 // ─────────────────────────────────────────────
 
@@ -201,25 +165,4 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FOnProjectileDestroyed,
 	const FProjectileSnapshot&, FinalSnapshot
-);
-
-/**
- * Delegate for server-side hit validation.
- * Bind this on the launcher to provide your game's hit confirmation logic.
- * Return true to confirm the hit, false to reject.
- */
-DECLARE_DELEGATE_RetVal_ThreeParams(
-	bool,
-	FOnValidateHit,
-	AActor*, /* HitActor */
-	float,   /* ClaimTimestamp */
-	FVector  /* ClaimPosition */
-);
-
-/** Broadcast after server confirms or rejects a client hit claim */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
-	FOnHitValidationResult,
-	AActor*, HitActor,
-	FVector, HitPosition,
-	bool, bConfirmed
 );
