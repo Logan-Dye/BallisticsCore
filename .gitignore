@@ -3,6 +3,8 @@ Binaries/
 Intermediate/
 DerivedDataCache/
 Saved/
+TestReports/
+TestReportsTargeted/
 *.sln
 *.suo
 *.opensdf
@@ -10,6 +12,7 @@ Saved/
 *.user
 *.VC.db
 *.VC.opendb
+.sync-backups/
 
 # OS
 .DS_Store
