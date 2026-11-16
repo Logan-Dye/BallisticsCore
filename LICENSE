@@ -1,0 +1,47 @@
+BallisticsCore Game Use License
+Copyright (c) 2026 Persidera Industries LLC
+
+Scope
+
+This license covers the BallisticsCore / Networked Projectile System code,
+documentation, and original example content in this repository to the extent
+owned by Persidera Industries LLC (the "Software"). It does not grant rights
+to Unreal Engine, Epic's First Person template assets under
+NPS/Content/FirstPerson/, or any other third-party material. Those materials
+remain subject to their respective terms. See https://www.unrealengine.com/eula/unreal
+for Epic's Unreal Engine terms.
+
+Game use
+
+Persidera Industries LLC grants you a worldwide, non-exclusive, royalty-free
+license to use, copy, and modify the Software to develop and test games.
+You may distribute the compiled plugin and any covered content packaged into
+a playable game for end users, whether the game is free or paid. This includes
+game demos, alphas, betas, and Early Access releases.
+
+Include the credit "BallisticsCore by Persidera Industries LLC" in your
+game's credits or in a notices file shipped with the game.
+
+Source sharing and resale
+
+You may share free copies or forks of the Software, including modified versions,
+under this same license. Keep this license and existing copyright notices with
+those copies. You may also share the Software privately with collaborators
+working on your game under these terms.
+
+You may not sell, license for a fee, or otherwise charge for access to the
+Software or derivatives of it as a standalone plugin, library, or toolkit.
+You may not include the Software or derivatives of it in a paid template,
+starter project, or other package sold for reuse by developers. These limits
+apply to source and compiled copies. A playable game release distributed to
+players under the Game use section is permitted at any stage of development.
+
+All rights not granted by this license are reserved.
+
+Disclaimer
+
+The Software is provided as is, without warranty of any kind, express or
+implied, including warranties of merchantability, fitness for a particular
+purpose, and noninfringement. To the extent permitted by law, Persidera
+Industries LLC is not liable for claims, damages, or other liability arising
+from the Software or its use.

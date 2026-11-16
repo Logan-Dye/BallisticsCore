@@ -14,3 +14,9 @@ Copy `NPS/` into your Unreal project's `Plugins/` directory, regenerate project 
 - [API reference](NPS/Docs/APIReference.md)
 
 The plugin includes its source, configuration, documentation, and example content. Local build outputs, test results, release archives, and the development test project are excluded.
+
+## License
+
+The [BallisticsCore Game Use License](LICENSE) allows free and paid games,
+including demos, alphas, and betas, with credit. Plugin resale and inclusion in
+paid templates are prohibited. Third-party assets remain under their own terms.
