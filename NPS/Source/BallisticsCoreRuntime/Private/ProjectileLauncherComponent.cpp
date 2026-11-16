@@ -685,8 +685,7 @@ void UProjectileLauncherComponent::DispatchLaunchCosmetic(
 			return;
 		}
 
-		// The initiating client always gets exact, immediate feedback. Remote
-		// delivery is independent of the launcher actor's relevancy.
+		// Remote delivery does not depend on launcher relevancy.
 		Manager->PlayLocalEvent(BuildLaunchCosmeticEvent(Origin, Direction));
 
 		if (bLaunchSequenceActive)
@@ -1037,7 +1036,6 @@ void UProjectileLauncherComponent::LaunchSpread(
 		ProjectileConditions.SetNum(64, EAllowShrinking::No);
 	}
 
-	// Launch each generated projectile through the normal authority flow without rebuilding it.
 	for (int32 Index = 0; Index < ProjectileConditions.Num(); ++Index)
 	{
 		const FProjectileInitialConditions& Projectile = ProjectileConditions[Index];
@@ -1736,9 +1734,7 @@ void UProjectileLauncherComponent::Launch_ClientPredicted(
 		PredictedProjectiles.Add(ProjectileID, PredictedProjectile);
 	}
 
-	// Get client timestamp for lag compensation. Use the GameState's server clock so
-	// client and server timestamps are in the same frame of reference (World->GetTimeSeconds
-	// is local-world-since-load, which diverges between client and server).
+	// Use the server clock for lag compensation.
 	float ClientTimestamp = 0.f;
 	if (UWorld* World = GetWorld())
 	{
@@ -1752,7 +1748,6 @@ void UProjectileLauncherComponent::Launch_ClientPredicted(
 		}
 	}
 
-	// Tell the server
 	ServerNotifyLaunch(
 		Conditions.Origin,
 		Conditions.Direction,
@@ -2234,7 +2229,7 @@ void UProjectileLauncherComponent::ServerSubmitFlightLog_Implementation(FProject
 			if (!Segment.HitActor.IsValid())
 			{
 				NPS_LOG(Verbose,
-					TEXT("[NPS] FlightLog #%d seg %d - no HitActor (response=%d, surface=%d). Static-world hit."),
+					TEXT("[NPS] FlightLog #%d seg %d: world hit (response=%d, surface=%d)"),
 					FlightLog.LaunchID, SegIdx, static_cast<int32>(Segment.ImpactResponse), Segment.SurfaceType.GetValue());
 			}
 			else if (AActor* DiagActor = Segment.HitActor.Get())
@@ -2243,10 +2238,8 @@ void UProjectileLauncherComponent::ServerSubmitFlightLog_Implementation(FProject
 				if (!bHasInterface)
 				{
 					NPS_LOG(Warning,
-						TEXT("[NPS] FlightLog #%d seg %d - hit actor %s does NOT implement IBallisticsDamageInterface; damage will NOT apply. response=%d bone=%s"),
-						FlightLog.LaunchID, SegIdx, *DiagActor->GetName(),
-						static_cast<int32>(Segment.ImpactResponse),
-						Segment.HitBoneName.IsNone() ? TEXT("<none>") : *Segment.HitBoneName.ToString());
+						TEXT("[NPS] FlightLog #%d seg %d: %s has no damage interface"),
+						FlightLog.LaunchID, SegIdx, *DiagActor->GetName());
 				}
 			}
 
@@ -2474,11 +2467,7 @@ EProjectileFlightValidationResult UProjectileLauncherComponent::ValidateFlightLo
 			}
 		}
 
-		// If this segment claims a hit on an actor, validate the actor is near the claimed position.
-		// GetActorLocation() returns the root (capsule bottom for Characters) - a head hit is ~180cm
-		// above that. For skeletal-mesh targets, validate against the named bone's world location so
-		// the tolerance is meaningful. For other actors, validate against the closest point on the
-		// actor's bounding box.
+		// Validate against the hit bone or the closest point on the actor bounds.
 		if (Segment.HitActor.IsValid())
 		{
 			const AActor* Target = Segment.HitActor.Get();
@@ -2526,16 +2515,11 @@ EProjectileFlightValidationResult UProjectileLauncherComponent::ValidateFlightLo
 
 			float DistToActor = FVector::Dist(ReferenceLoc, Segment.EndLocation);
 
-			// Motion-aware tolerance: the shooter aims at the client's smoothed/interpolated
-			// pose, which trails the server actor in proportion to target speed plus network
-			// delay. A flat tolerance passes walkers and rejects sprinters on the same honest
-			// aim; a stationary target keeps the tight base value.
+			// Account for target motion during client smoothing and network delay.
 			const float EffectiveTolerance = Settings->ClientAuthHitLocationTolerance
 				+ Target->GetVelocity().Size() * Settings->ClientAuthTargetVelocityLagSeconds;
 
-			// Independently animated client/server limbs can legitimately exceed the bone
-			// tolerance. Keep the tight bone check first, then accept impacts that still lie
-			// within the server actor's colliding bounds.
+			// Fall back to actor bounds when server and client bone poses differ.
 			if (bResolvedReference && DistToActor > EffectiveTolerance)
 			{
 				FVector BoxOrigin = FVector::ZeroVector;
@@ -2559,11 +2543,8 @@ EProjectileFlightValidationResult UProjectileLauncherComponent::ValidateFlightLo
 			if (DistToActor > EffectiveTolerance)
 			{
 				NPS_LOG(Warning,
-					TEXT("[NPS] InvalidTarget: %s claimed bone='%s' impact=%s reference=%s distance=%.1fcm > tolerance=%.1fcm (base %.0f + motion)"),
-					*Target->GetName(),
-					Segment.HitBoneName.IsNone() ? TEXT("<none>") : *Segment.HitBoneName.ToString(),
-					*Segment.EndLocation.ToString(), *ReferenceLoc.ToString(),
-					DistToActor, EffectiveTolerance, Settings->ClientAuthHitLocationTolerance);
+					TEXT("[NPS] Rejected hit on %s: %.1f cm exceeds %.1f cm tolerance"),
+					*Target->GetName(), DistToActor, EffectiveTolerance);
 				OutFailedSegmentIndex = i;
 				return EProjectileFlightValidationResult::InvalidTarget;
 			}
@@ -2584,12 +2565,7 @@ bool UProjectileLauncherComponent::ValidateSegmentVisibility(const FProjectileFl
 		return false;
 	}
 
-	// Ignore whole ATTACHMENT FAMILIES, not single actors. A pawn and its worn gear are
-	// separate actors: a claim on the plate left the pawn's own server-posed body as an
-	// obstruction (and vice versa), so honest hits on armored targets failed whenever the
-	// server pose sat into the aimed line — the dominant "shot did nothing" case on moving
-	// AI. Same on the shooter side: GetOwner() is the WEAPON, so the shooting pawn itself
-	// could obstruct its own shot.
+	// Ignore worn gear and its owner together when checking the shot path.
 	FHitResult Hit;
 	FCollisionQueryParams Params;
 	auto IgnoreFamily = [&Params](AActor* Actor)
@@ -2618,9 +2594,7 @@ bool UProjectileLauncherComponent::ValidateSegmentVisibility(const FProjectileFl
 		IgnoreFamily(Segment.HitActor.Get());
 	}
 
-	// Reject obstructions outside the endpoint tolerance. The budget grows with the claimed
-	// target's server velocity — client-side smoothing/interpolation means the aimed line and
-	// the server's world diverge in proportion to how fast the target moves.
+	// Grow endpoint tolerance with target speed.
 	if (World->LineTraceSingleByChannel(Hit, Segment.StartLocation, Segment.EndLocation, ECC_Visibility, Params))
 	{
 		const float DistToClaimedEnd = FVector::Dist(Hit.ImpactPoint, Segment.EndLocation);
@@ -3562,8 +3536,7 @@ AActor* UProjectileLauncherComponent::SpawnProjectile(const FProjectileInitialCo
 				UE_LOG(
 					LogNPS,
 					Warning,
-					TEXT("Projectile class %s is using explosive projectile '%s' but has no "
-						"BallisticsDetonationComponent. The projectile will not detonate."),
+					TEXT("%s cannot detonate %s: missing BallisticsDetonationComponent."),
 					*GetNameSafe(Projectile->GetClass()),
 					*GetNameSafe(ProjectileDataAsset));
 			}

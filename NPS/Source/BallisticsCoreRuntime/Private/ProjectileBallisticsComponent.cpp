@@ -36,8 +36,7 @@ UProjectileBallisticsComponent::UProjectileBallisticsComponent()
 	ProjectileID = -1;
 	bIsLocallyPredicted = false;
 
-	// Sliding defaults seeded from project settings. BP-level overrides on the
-	// component still win (serialized BP values apply after the constructor).
+	// Serialized Blueprint overrides take precedence.
 	if (const UBallisticsCoreSettings* Settings = UBallisticsCoreSettings::Get())
 	{
 		bEnableSliding = Settings->bDefaultEnableSliding;
@@ -205,8 +204,6 @@ FProjectileSnapshot UProjectileBallisticsComponent::GetCurrentSnapshot() const
 
 FProjectileSnapshot UProjectileBallisticsComponent::EvaluateAtTime(float Time) const
 {
-	// Pure math evaluation - no collision, no state changes
-	// but without side effects
 
 	FVector Pos = InitialConditions.Origin;
 	FVector Vel = InitialConditions.Direction * InitialConditions.InitialSpeed;
@@ -258,9 +255,7 @@ void UProjectileBallisticsComponent::ForceCorrection(const FVector& NewPosition,
 
 void UProjectileBallisticsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
-	// Aggregate simulation calls this method deliberately with no tick function.
-	// Any engine/component tick while batching is enabled is a conflicting owner:
-	// disable it before it can advance the projectile a second time.
+	// Aggregate simulation owns stepping while batching is enabled.
 	if (ThisTickFunction != nullptr && !EnforceSimulationTickOwnership())
 	{
 		return;
@@ -303,8 +298,6 @@ void UProjectileBallisticsComponent::StepTrajectory(float DeltaTime)
 		// Sweep for collisions between old and new position
 		if (ProcessSweep(OldPosition, CurrentPosition))
 		{
-			// Hit something - ProcessSweep handled the response
-			// Position and velocity are already updated by the handler
 			break;
 		}
 
@@ -378,7 +371,7 @@ bool UProjectileBallisticsComponent::ProcessSweep(const FVector& Start, const FV
 	const EImpactResponse Response = DecideImpactResponse(Hit, CurrentVelocity);
 	const float SpeedAtStart = CurrentVelocity.Size();
 
-	// Rides the projectile debug-draw cvar: names what the drawn markers actually hit.
+	// Log what the impact markers hit.
 	if (FBallisticsDebugDraw::IsProjectileDebugEnabled())
 	{
 		NPS_LOG(Log, TEXT("[NPS] Impact %s: actor=%s comp=%s bone=%s phys=%s dist=%.0fcm speed=%.0f"),
@@ -538,9 +531,7 @@ EImpactResponse UProjectileBallisticsComponent::DecideImpactResponse(const FHitR
 	const float DotAbs = FMath::Abs(FVector::DotProduct(VelNorm, Hit.ImpactNormal));
 	const float ImpactAngleDeg = FMath::RadiansToDegrees(FMath::Asin(FMath::Clamp(DotAbs, 0.f, 1.f)));
 
-	// Shallow angle path: try Ricochet first, fall back to Slide ("failed ricochet").
-	// Arrows with MaxRicochets=0 skip straight to Slide on grazing hits. Projectiles ricochet
-	// until their budget is exhausted, then slide.
+	// Slide on grazing hits after the ricochet budget is spent.
 	if (ImpactAngleDeg < Material.RicochetAngleThreshold)
 	{
 		if (RicochetCount < MaxRicochets)
@@ -652,10 +643,6 @@ void UProjectileBallisticsComponent::HandlePenetration(const FHitResult& Hit, co
 
 	if (bValidExit)
 	{
-		// KE-conservation model: subtract energy proportional to (Toughness x thickness).
-		// At the threshold KE == Toughness, a projectile exits with zero KE if it traverses
-		// the full MaxPenetrationDepth - i.e. material thickness up to MaxPen is the
-		// "equivalent" of one Toughness-worth of resistance.
 		const float OldSpeed = CurrentVelocity.Size();
 		const float OldKEJoules = 0.5f * InitialConditions.Mass * OldSpeed * OldSpeed * KE_RAW_TO_JOULES;
 		const float KELostJoules = Material.Toughness * (PenetrationDistance / FMath::Max(MaxPenetrationDepth, 1.f));
